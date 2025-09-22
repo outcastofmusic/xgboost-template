@@ -56,17 +56,18 @@ def champion_callback(study, frozen_trial):
 
 
 def evaluate_metrics(
-    model: xgb.XGBClassifier, X: pd.DataFrame, y: pd.Series
+    model: xgb.XGBClassifier, X: pd.DataFrame, y: pd.Series, categorical_columns: Optional[list[str]] = None, threshold: float = 0.5
 ) -> ClassifierMetrics:
-    preds = model.predict(X)
-    accuracy = accuracy_score(y, preds)
-    precision = precision_score(y, preds)
-    recall = recall_score(y, preds)
-    f1 = f1_score(y, preds)
-    roc_auc = roc_auc_score(y, preds)
-    average_precision = average_precision_score(y, preds)
-    classification_report_output = classification_report(y, preds)
-    return ClassifierMetrics(
+    preds = model.predict_proba(X)[:, 1] # get the label 1 probability
+    y_pred = (preds > threshold).astype(int)
+    accuracy = accuracy_score(y_true=y, y_pred=y_pred)
+    precision = precision_score(y_true=y, y_pred=y_pred, zero_division=0)
+    recall = recall_score(y_true=y, y_pred=y_pred, zero_division=0)
+    f1 = f1_score(y_true=y, y_pred=y_pred, zero_division=0)
+    roc_auc = roc_auc_score(y_true=y, y_score=preds)
+    average_precision = average_precision_score(y_true=y, y_score=preds)
+    classification_report_output = classification_report(y_true=y, y_pred=y_pred, zero_division=0)
+    metrics = ClassifierMetrics(
         accuracy=accuracy,
         precision=precision,
         recall=recall,
@@ -75,7 +76,7 @@ def evaluate_metrics(
         average_precision=average_precision,
         classification_report=classification_report_output,
     )
-
+    return metrics
 
 def optimize_classifier(
     dataset: pd.DataFrame,
@@ -118,7 +119,7 @@ def optimize_classifier(
     test_y = pd.Series(dataset.loc[dataset.split == "test"][target_column])
 
     dtrain = xgb.DMatrix(train_x, label=train_y, enable_categorical=True if categorical_columns else False)
-    # dvalid = xgb.DMatrix(valid_x, label=valid_y, enable_categorical=True if categorical_columns else False)
+    dvalid = xgb.DMatrix(valid_x, label=valid_y, enable_categorical=True if categorical_columns else False)
     # dtest = xgb.DMatrix(test_x, label=test_y, enable_categorical=True if categorical_columns else False)
 
     def objective(trial):
@@ -127,7 +128,7 @@ def optimize_classifier(
             "objective": "binary:logistic",
             "eval_metric": "auc",
             "booster": trial.suggest_categorical(
-                "booster", ["gbtree", "gblinear", "dart"]
+                "booster", ["gbtree", "dart"]
             ),
             "lambda": trial.suggest_float("lambda", 1e-8, 1.0, log=True),
             "alpha": trial.suggest_float("alpha", 1e-8, 1.0, log=True),
@@ -141,6 +142,8 @@ def optimize_classifier(
                 "grow_policy", ["depthwise", "lossguide"]
             )
             params['enable_categorical'] = True if categorical_columns else False
+            params['early_stopping_rounds'] = config.early_stopping_rounds
+            params['num_boost_round'] = config.num_boost_round
 
         # Train XGBoost model
         # cv_results = xgb.cv(
@@ -153,8 +156,11 @@ def optimize_classifier(
         #     metrics=["logloss", "auc"],
         #     as_pandas=True,
         # )
-        model = xgb.train(params, dtrain, num_boost_round=config.num_boost_round, early_stopping_rounds=config.early_stopping_rounds)
-        metrics = evaluate_metrics(model, valid_x, valid_y)
+        # model = xgb.train(params, dtrain, num_boost_round=config.num_boost_round, early_stopping_rounds=config.early_stopping_rounds, evals=[(dvalid, "valid")])
+        model = xgb.XGBClassifier(**params)
+        model.fit(train_x, train_y, eval_set=[(valid_x, valid_y)])
+        metrics = evaluate_metrics(model, valid_x, valid_y, categorical_columns)
+
         log_classifier_run(
             model=model,
             params=params,
@@ -168,6 +174,7 @@ def optimize_classifier(
             nested=True,
             log_tags=None,
             log_model=False,
+            log_plots=False,
         )
         return metrics.average_precision
 
@@ -193,9 +200,13 @@ def optimize_classifier(
         }
 
         # Log a fit model instance
-        model = xgb.train(study.best_params, dtrain, num_boost_round=config.num_boost_round, early_stopping_rounds=config.early_stopping_rounds)
-
-        metrics = evaluate_metrics(model, test_x, test_y)
+        # model = xgb.train(study.best_params, dtrain, num_boost_round=config.num_boost_round, early_stopping_rounds=config.early_stopping_rounds)
+        best_params = {**study.best_params, 'enable_categorical': True if categorical_columns else False}
+        best_params['early_stopping_rounds'] = config.early_stopping_rounds
+        best_params['num_boost_round'] = config.num_boost_round
+        model = xgb.XGBClassifier(**best_params)
+        model.fit(train_x, train_y, eval_set=[(valid_x, valid_y)])
+        metrics = evaluate_metrics(model, test_x, test_y, categorical_columns)
         log_classifier_run(
             model=model,
             params=study.best_params,

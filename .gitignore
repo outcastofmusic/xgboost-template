@@ -11,3 +11,9 @@ wheels/
 
 #plots
 *.png
+
+
+# mlflow
+mlruns/
+mlartifacts/
+logs/

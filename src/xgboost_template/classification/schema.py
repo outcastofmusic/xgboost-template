@@ -18,3 +18,9 @@ class ClassifierMetrics(BaseModel):
   roc_auc: float
   average_precision: float
   classification_report: str
+
+  def __repr__(self):
+    return f"ClassifierMetrics(accuracy={self.accuracy}, precision={self.precision}, recall={self.recall}, f1={self.f1}, roc_auc={self.roc_auc}, average_precision={self.average_precision})"
+
+  def __str__(self):
+    return f"ClassifierMetrics(accuracy={self.accuracy}, precision={self.precision}, recall={self.recall}, f1={self.f1}, roc_auc={self.roc_auc}, average_precision={self.average_precision})"

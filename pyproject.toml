@@ -6,6 +6,7 @@ readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "jupyterlab>=4.4.7",
+    "loguru>=0.7.3",
     "mapie>=1.0.1",
     "mlflow>=3.4.0",
     "optuna>=4.5.0",
@@ -20,3 +21,8 @@ dependencies = [
 dev = [
     "ipdb>=0.13.13",
 ]
+
+
+[build-system]
+requires = ["uv_build>=0.8.19,<0.9.0"]
+build-backend = "uv_build"

@@ -57,7 +57,7 @@ def plot_correlation_with_label(df:pd.DataFrame, label_column:str, save_path=Non
 
   return fig
 
-def plot_residuals(model:xgb.XGBClassifier, dvalid:xgb.DMatrix, valid_y:pd.Series, save_path=None)->plt.Figure:
+def plot_residuals(preds:np.ndarray, y:pd.Series, save_path=None)->plt.Figure:
     """
     Plots the residuals of the model predictions against the true values.
 
@@ -71,18 +71,15 @@ def plot_residuals(model:xgb.XGBClassifier, dvalid:xgb.DMatrix, valid_y:pd.Serie
     - plt.Figure: The plot figure.
     """
 
-    # Predict using the model
-    preds = model.predict(dvalid)
-
     # Calculate residuals
-    residuals = valid_y - preds
+    residuals = y - preds
 
     # Set Seaborn style
     sns.set_style("whitegrid", {"axes.facecolor": "#c2c4c2", "grid.linewidth": 1.5})
 
     # Create scatter plot
     fig = plt.figure(figsize=(12, 8))
-    plt.scatter(valid_y, residuals, color="blue", alpha=0.5)
+    plt.scatter(y, residuals, color="blue", alpha=0.5)
     plt.axhline(y=0, color="r", linestyle="-")
 
     # Set labels, title and other plot properties
@@ -136,7 +133,7 @@ def plot_shap_summary(model:xgb.XGBClassifier, X:pd.DataFrame, save_path=None)->
     """
     Plots the SHAP summary of the model.
     """
-    explainer = shap.Explainer(model, X)
+    explainer = shap.Explainer(model,X)
     shap_values = explainer(X)
     fig = plt.figure(figsize=(12, 8))
     shap.plots.beeswarm(shap_values, ax=plt.gca(),plot_size=None,show=False)
@@ -171,7 +168,6 @@ def plot_confusion_matrix(model:xgb.XGBClassifier, X:pd.DataFrame, y:pd.Series, 
     display.plot(ax=plt.gca())
     plt.title("Confusion Matrix")
     plt.tight_layout()
-
     if save_path:
         plt.savefig(save_path, format="png", dpi=600)
     plt.close(fig)
@@ -235,7 +231,7 @@ if __name__ == "__main__":
     
     df['category'] = np.random.choice(['a', 'b', 'c'], size=len(df))
     
-    residuals_plot = plot_residuals(model, X, df['label'], save_path=root_save_path / "residuals_plot.png")
+    residuals_plot = plot_residuals(model.predict(X), df['label'], save_path=root_save_path / "residuals_plot.png")
     feature_importance_plot = plot_feature_importance(model, save_path=root_save_path / "feature_importance_plot.png")
     shap_summary_plot = plot_shap_summary(model, X, save_path=root_save_path / "shap_summary_plot.png")
     precision_recall_curve_plot = plot_precision_recall_curve(model, X, y, save_path=root_save_path / "precision_recall_curve_plot.png")
