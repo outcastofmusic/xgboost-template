@@ -193,7 +193,7 @@ def plot_model_scores_distribution(model:xgb.XGBClassifier, X:pd.DataFrame, y:pd
     plt.close(fig)
     return fig
 
-def plot_violin_plot(model:xgb.XGBClassifier, X:pd.DataFrame, y:pd.Series, hue:Optional[pd.Series]=None, save_path=None)->plt.Figure:
+def plot_violin_plot(model:xgb.XGBClassifier, X:pd.DataFrame, y:pd.Series, hue:Optional[pd.Series]=None, inverse_hue:bool=True, save_path=None)->plt.Figure:
     """
     Plots the violin plot of the model scores.
     Args:
@@ -201,13 +201,20 @@ def plot_violin_plot(model:xgb.XGBClassifier, X:pd.DataFrame, y:pd.Series, hue:O
     - X: The input data.
     - y: The target variable, you will get on violin plot in x axis for every label
     - hue: The variable to use for the hue, for every y, you will get multiple hue violin plots to see the distribution of the model scores for each hue, for the same y
+    - inverse_hue: If True, x will be the hue and hue will be x
     - save_path: The path to save the plot.
     Returns:
     - plt.Figure: The plot figure.
     """
     fig = plt.figure(figsize=(12, 8))
     scores = model.predict_proba(X)[:, 1]
-    sns.violinplot(x=y, y=scores, ax=plt.gca(), hue=hue)
+    # x, hue = hue, scores if inverse_hue else scores, hue
+    data = pd.DataFrame({'scores': scores, 'label': y})
+    if hue is not None:
+        data['hue'] = hue
+    x_column, hue_column = ('hue', 'label') if inverse_hue else ('label', 'hue')
+    sns.violinplot(x=x_column, y="scores", ax=plt.gca(), hue=hue_column, data=data)
+    # sns.stripplot(x=x_column, y="scores", data=data, jitter=True, hue=hue_column, ax=plt.gca())
     plt.title("Model Scores Violin Plot")
     plt.tight_layout()
     if save_path:

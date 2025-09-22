@@ -169,6 +169,7 @@ def optimize_classifier(
             config=config,
             metrics=metrics,
             hue=valid_x_stratified,
+            inverse_hue=True,
             experiment_id=None,
             run_name=None,
             nested=True,
@@ -221,4 +222,5 @@ def optimize_classifier(
             log_tags=tags,
             log_model=True,
             start_run=False,
+            inverse_hue=True,
         )

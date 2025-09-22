@@ -36,6 +36,7 @@ def log_classifier_run(
     log_model: bool = True,
     log_plots: bool = True,
     start_run: bool = True,
+    inverse_hue: bool = False,
 ):
     """
     Logs the classifier run to MLflow.
@@ -62,7 +63,7 @@ def log_classifier_run(
         precision_recall_curve = plot_precision_recall_curve(model, X, y)
         confusion_matrix = plot_confusion_matrix(model, X, y)
         model_scores_distribution = plot_model_scores_distribution(model, X, y)
-        violin_plot = plot_violin_plot(model, X, y, hue=hue)
+        violin_plot = plot_violin_plot(model, X, y, hue=hue, inverse_hue=inverse_hue)
 
     if start_run:
         with mlflow.start_run(
