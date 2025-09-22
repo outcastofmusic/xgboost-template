@@ -1,0 +1,22 @@
+[project]
+name = "xgboost-template"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "jupyterlab>=4.4.7",
+    "mapie>=1.0.1",
+    "mlflow>=3.4.0",
+    "optuna>=4.5.0",
+    "pandas>=2.3.2",
+    "scikit-learn>=1.7.2",
+    "seaborn>=0.13.2",
+    "shap>=0.48.0",
+    "xgboost>=3.0.5",
+]
+
+[dependency-groups]
+dev = [
+    "ipdb>=0.13.13",
+]
