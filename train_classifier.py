@@ -25,7 +25,7 @@ dataset['categorical'] = dataset['categorical'].astype('category')
 print(dataset.head())
 experiment_id = get_or_create_experiment(experiment_name="xgboost_template")
 
-optimization_params = OptimizationParams(n_trials=5)
+optimization_params = OptimizationParams(n_trials=5, nfold=3)
 optimize_classifier(
     dataset=dataset,
     target_column="target",

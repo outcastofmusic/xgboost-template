@@ -71,8 +71,8 @@ def log_classifier_run(
         ):
             # Log to MLflow
             mlflow.log_params(params)
-            metrics_dict = metrics.model_dump()
-            classification_report = metrics_dict.pop('classification_report')
+            metrics_dict = metrics.get_numeric_metrics()
+            classification_report = metrics.classification_report
             mlflow.log_metrics(metrics_dict)
             mlflow.log_text(classification_report, "classification_report.txt")
             if log_plots:
@@ -113,8 +113,8 @@ def log_classifier_run(
                 )
     else:
         mlflow.log_params(params)
-        metrics_dict = metrics.model_dump()
-        classification_report = metrics_dict.pop('classification_report')
+        metrics_dict = metrics.get_numeric_metrics()
+        classification_report = metrics.classification_report
         mlflow.log_text(classification_report, "classification_report.txt")
         mlflow.log_metrics(metrics_dict)
 

@@ -1,22 +1,23 @@
+from typing import Optional
+
 import mlflow
 import optuna
 import pandas as pd
-from typing import Optional
 import xgboost as xgb
+from loguru import logger
 from sklearn.metrics import (
     accuracy_score,
-    precision_score,
-    recall_score,
-    f1_score,
-    roc_auc_score,
     average_precision_score,
     classification_report,
+    f1_score,
+    precision_score,
+    recall_score,
+    roc_auc_score,
 )
+from sklearn.model_selection import StratifiedGroupKFold, StratifiedKFold
 
-import mlflow
-from .schema import OptimizationParams, ClassifierMetrics
 from .experiment_logger import log_classifier_run
-
+from .schema import ClassifierMetrics, OptimizationParams
 
 # override Optuna's default logging to ERROR only
 optuna.logging.set_verbosity(optuna.logging.ERROR)
@@ -55,10 +56,58 @@ def champion_callback(study, frozen_trial):
             )
 
 
+def cross_validate_classifier(
+    params: dict,
+    X: pd.DataFrame,
+    y: pd.Series,
+    config: OptimizationParams,
+    categorical_columns: Optional[list[str]] = None,
+    stratified_column: Optional[str] = None,
+    random_state: Optional[int] = None,
+) -> tuple[ClassifierMetrics, ClassifierMetrics]:
+    if stratified_column:
+        cv = StratifiedGroupKFold(
+            n_splits=config.nfold, shuffle=True, random_state=random_state
+        )
+        metrics = []
+        for train_index, valid_index in cv.split(X, y, groups=X[stratified_column]):
+            train_x = X.iloc[train_index]
+            valid_x = X.iloc[valid_index]
+            train_y = y.iloc[train_index]
+            valid_y = y.iloc[valid_index]
+            model = xgb.XGBClassifier(**params)
+            model.fit(train_x, train_y, eval_set=[(valid_x, valid_y)])
+            metrics.append(
+                evaluate_metrics(model, valid_x, valid_y, categorical_columns)
+            )
+    else:
+        cv = StratifiedKFold(
+            n_splits=config.nfold, shuffle=True, random_state=random_state
+        )
+        metrics = []
+        for train_index, valid_index in cv.split(X, y):
+            train_x = X.iloc[train_index]
+            valid_x = X.iloc[valid_index]
+            train_y = y.iloc[train_index]
+            valid_y = y.iloc[valid_index]
+            model = xgb.XGBClassifier(**params)
+            model.fit(train_x, train_y, eval_set=[(valid_x, valid_y)])
+            metrics.append(
+                evaluate_metrics(model, valid_x, valid_y, categorical_columns)
+            )
+
+    metric_means, metric_stds = ClassifierMetrics.calculate_means_and_stds(metrics)
+    return metric_means, metric_stds
+
+
 def evaluate_metrics(
-    model: xgb.XGBClassifier, X: pd.DataFrame, y: pd.Series, categorical_columns: Optional[list[str]] = None, threshold: float = 0.5
+    model: xgb.XGBClassifier,
+    X: pd.DataFrame,
+    y: pd.Series,
+    categorical_columns: Optional[list[str]] = None,
+    threshold: float = 0.5,
 ) -> ClassifierMetrics:
-    preds = model.predict_proba(X)[:, 1] # get the label 1 probability
+    preds = model.predict_proba(X)[:, 1]  # get the label 1 probability
     y_pred = (preds > threshold).astype(int)
     accuracy = accuracy_score(y_true=y, y_pred=y_pred)
     precision = precision_score(y_true=y, y_pred=y_pred, zero_division=0)
@@ -66,7 +115,9 @@ def evaluate_metrics(
     f1 = f1_score(y_true=y, y_pred=y_pred, zero_division=0)
     roc_auc = roc_auc_score(y_true=y, y_score=preds)
     average_precision = average_precision_score(y_true=y, y_score=preds)
-    classification_report_output = classification_report(y_true=y, y_pred=y_pred, zero_division=0)
+    classification_report_output = classification_report(
+        y_true=y, y_pred=y_pred, zero_division=0
+    )
     metrics = ClassifierMetrics(
         accuracy=accuracy,
         precision=precision,
@@ -78,6 +129,7 @@ def evaluate_metrics(
     )
     return metrics
 
+
 def optimize_classifier(
     dataset: pd.DataFrame,
     target_column: str,
@@ -88,28 +140,33 @@ def optimize_classifier(
     random_state: Optional[int] = None,
     stratified_column: Optional[str] = None,
 ):
-
     if categorical_columns:
         for category in categorical_columns:
             dataset[category] = dataset[category].astype("category")
     if stratified_column:
         dataset[stratified_column] = dataset[stratified_column].astype("category")
 
-    train_x = pd.DataFrame(dataset.loc[dataset.split == "train"].drop(columns=[target_column, "split"]))
+    train_x = pd.DataFrame(
+        dataset.loc[dataset.split == "train"].drop(columns=[target_column, "split"])
+    )
     if stratified_column:
         train_x_stratified = train_x[stratified_column]
         train_x = train_x.drop(columns=[stratified_column])
     else:
         train_x_stratified = None
     train_y = pd.Series(dataset.loc[dataset.split == "train"][target_column])
-    valid_x = pd.DataFrame(dataset.loc[dataset.split == "valid"].drop(columns=[target_column, "split"]))
+    valid_x = pd.DataFrame(
+        dataset.loc[dataset.split == "valid"].drop(columns=[target_column, "split"])
+    )
     if stratified_column:
         valid_x_stratified = valid_x[stratified_column]
         valid_x = valid_x.drop(columns=[stratified_column])
     else:
         valid_x_stratified = None
     valid_y = pd.Series(dataset.loc[dataset.split == "valid"][target_column])
-    test_x = pd.DataFrame(dataset.loc[dataset.split == "test"].drop(columns=[target_column, "split"]))
+    test_x = pd.DataFrame(
+        dataset.loc[dataset.split == "test"].drop(columns=[target_column, "split"])
+    )
     if stratified_column:
         test_x_stratified = test_x[stratified_column]
         test_x = test_x.drop(columns=[stratified_column])
@@ -117,19 +174,15 @@ def optimize_classifier(
         test_x_stratified = None
 
     test_y = pd.Series(dataset.loc[dataset.split == "test"][target_column])
-
-    dtrain = xgb.DMatrix(train_x, label=train_y, enable_categorical=True if categorical_columns else False)
-    dvalid = xgb.DMatrix(valid_x, label=valid_y, enable_categorical=True if categorical_columns else False)
-    # dtest = xgb.DMatrix(test_x, label=test_y, enable_categorical=True if categorical_columns else False)
+    Xdf = pd.DataFrame(dataset.loc[dataset.split != "test"].drop(columns=[target_column, "split"]))
+    ydf = pd.Series(dataset.loc[dataset.split != "test"][target_column])
 
     def objective(trial):
         # Define hyperparameters
         params = {
             "objective": "binary:logistic",
             "eval_metric": "auc",
-            "booster": trial.suggest_categorical(
-                "booster", ["gbtree", "dart"]
-            ),
+            "booster": trial.suggest_categorical("booster", ["gbtree", "dart"]),
             "lambda": trial.suggest_float("lambda", 1e-8, 1.0, log=True),
             "alpha": trial.suggest_float("alpha", 1e-8, 1.0, log=True),
         }
@@ -141,25 +194,27 @@ def optimize_classifier(
             params["grow_policy"] = trial.suggest_categorical(
                 "grow_policy", ["depthwise", "lossguide"]
             )
-            params['enable_categorical'] = True if categorical_columns else False
-            params['early_stopping_rounds'] = config.early_stopping_rounds
-            params['num_boost_round'] = config.num_boost_round
+            params["enable_categorical"] = True if categorical_columns else False
+            params["early_stopping_rounds"] = config.early_stopping_rounds
+            params["num_boost_round"] = config.num_boost_round
 
-        # Train XGBoost model
-        # cv_results = xgb.cv(
-        #     params,
-        #     dtrain=dtrain,
-        #     num_boost_round=config.num_boost_round,
-        #     nfold=config.nfold,
-        #     early_stopping_rounds=config.early_stopping_rounds,
-        #     maximize=True,
-        #     metrics=["logloss", "auc"],
-        #     as_pandas=True,
-        # )
-        # model = xgb.train(params, dtrain, num_boost_round=config.num_boost_round, early_stopping_rounds=config.early_stopping_rounds, evals=[(dvalid, "valid")])
         model = xgb.XGBClassifier(**params)
         model.fit(train_x, train_y, eval_set=[(valid_x, valid_y)])
-        metrics = evaluate_metrics(model, valid_x, valid_y, categorical_columns)
+        if config.nfold > 1:
+            metrics_means, metrics_stds = cross_validate_classifier(
+                params,
+                Xdf,
+                ydf,
+                config,
+                categorical_columns,
+                stratified_column,
+                random_state,
+            )
+            logger.info(metrics_means)
+            logger.info(metrics_stds)
+            metrics = metrics_means
+        else:
+            metrics = evaluate_metrics(model, valid_x, valid_y, categorical_columns)
 
         log_classifier_run(
             model=model,
@@ -202,15 +257,44 @@ def optimize_classifier(
 
         # Log a fit model instance
         # model = xgb.train(study.best_params, dtrain, num_boost_round=config.num_boost_round, early_stopping_rounds=config.early_stopping_rounds)
-        best_params = {**study.best_params, 'enable_categorical': True if categorical_columns else False}
-        best_params['early_stopping_rounds'] = config.early_stopping_rounds
-        best_params['num_boost_round'] = config.num_boost_round
+        best_params = {
+            **study.best_params,
+            "enable_categorical": True if categorical_columns else False,
+        }
+        best_params["early_stopping_rounds"] = config.early_stopping_rounds
+        best_params["num_boost_round"] = config.num_boost_round
+
+        if config.nfold > 1:
+            metrics_means, metrics_stds = cross_validate_classifier(
+                best_params,
+                Xdf,
+                ydf,
+                config,
+                categorical_columns,
+                stratified_column,
+                random_state,
+            )
+            logger.info(metrics_means)
+            mlflow.log_metrics(
+                {
+                    f"{key}_mean": value
+                    for key, value in metrics_means.get_numeric_metrics().items()
+                }
+            )
+            mlflow.log_metrics(
+                {
+                    f"{key}_std": value
+                    for key, value in metrics_stds.get_numeric_metrics().items()
+                }
+            )
         model = xgb.XGBClassifier(**best_params)
         model.fit(train_x, train_y, eval_set=[(valid_x, valid_y)])
         metrics = evaluate_metrics(model, test_x, test_y, categorical_columns)
+        best_params['n_trials'] = config.n_trials
+        best_params['nfold'] = config.nfold
         log_classifier_run(
             model=model,
-            params=study.best_params,
+            params=best_params,
             X=test_x,
             y=test_y,
             config=config,
